@@ -1,0 +1,64 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Data
+data/
+datasets/
+
+# Temporary files
+*.tmp
+*.swp
+
+# Environment variables
+.env
+# Python cache
+__pycache__/
+*.pyc
+
+# Pickle files
+*.pkl
+
+# Model files
+*.pt
+*.pth
+
+# Data
+data/
+datasets/
+
+# Virtual environments
+venv/
+env/
+.venv/
