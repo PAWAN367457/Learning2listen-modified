@@ -224,13 +224,95 @@ def main(args):
                                   load_path=load_path)
     generator.eval()
 
-    ## load data
-    out_num = 1 if config['data']['speaker'] == 'fallon' else 0
-    test_X, test_Y, test_audio, test_files, _ = \
-            load_test_data(config, pipeline, tag, out_num=out_num,
-                           vqconfigs=vq_configs, smooth=True,
-                           speaker=args.speaker, num_out=num_out)
+    # ## load data
+    # out_num = 1 if config['data']['speaker'] == 'fallon' else 0
+    # test_X, test_Y, test_audio, test_files, _ = \
+    #         load_test_data(config, pipeline, tag, out_num=out_num,
+    #                        vqconfigs=vq_configs, smooth=True,
+    #                        speaker=args.speaker, num_out=num_out)
 
+   # Custom data loading - FIXED version (batch dim, 56 channels, dynamic batch_size, truncation)
+    custom_dir = "/home/mudasir/Pawan/MPII/simple_tranformer/STGNN/l2l_inputs"
+
+    test_X = []
+    test_Y = []
+    test_audio = []
+    test_files = []
+
+    print(f"\n=== Custom Data Loading ===")
+    print(f"Scanning: {custom_dir}")
+    all_files = os.listdir(custom_dir)
+    print(f"Total files: {len(all_files)}")
+    print("First 10 files:", all_files[:10])
+
+    for file in sorted(all_files):
+        if file.endswith("_speak_faces.npy"):
+            clip_id = file.replace("_speak_faces.npy", "")
+            face_path = os.path.join(custom_dir, file)
+            audio_path = os.path.join(custom_dir, clip_id + "_speak_audio.npy")
+
+            if not os.path.exists(audio_path):
+                print(f"Missing audio: {clip_id} → skipping")
+                continue
+
+            print(f"Loading: {clip_id}")
+
+            # Load + add batch dim (N=1)
+            speaker = np.load(face_path)[None, ...].astype(np.float32)  # (1, T, 184)
+            audio   = np.load(audio_path)[None, ...].astype(np.float32)  # (1, 4T, 128)
+
+            print(f"  Raw face shape: {speaker.shape}")
+
+            # Truncate time
+            max_t = 64
+            if speaker.shape[1] > max_t:
+                print(f"  Truncating time: {speaker.shape[1]} → {max_t}")
+                speaker = speaker[:, :max_t, :]
+                audio   = audio[:, :max_t * 4, :]
+
+            # Slice features to match pre-trained encoder (56 channels)
+            expected_channels = 56
+            if speaker.shape[2] != expected_channels:
+                print(f"  Reducing channels: {speaker.shape[2]} → {expected_channels}")
+                speaker = speaker[:, :, :expected_channels]
+
+            print(f"  After processing: {speaker.shape}")
+
+            # Append without batch dim for stacking
+            test_X.append(speaker[0])      # (64, 56)
+            test_audio.append(audio[0])
+            listener_dummy = np.zeros_like(speaker[0])
+            test_Y.append(listener_dummy)
+
+            # Fake files for naming
+            T = speaker.shape[1]
+            dummy_files = np.array([[clip_id, "0", str(i)] for i in range(T)])
+            test_files.append(dummy_files)
+
+    # Final stacking
+    if test_X:
+        test_X     = np.stack(test_X, axis=0).astype(np.float32)     # (N, 64, 56)
+        test_Y     = np.stack(test_Y, axis=0).astype(np.float32)
+        test_audio = np.stack(test_audio, axis=0).astype(np.float32)
+        test_files = np.stack(test_files)
+
+        print("\nFinal shapes:")
+        print(f"  test_X:     {test_X.shape}")
+        print(f"  test_Y:     {test_Y.shape}")
+        print(f"  test_audio: {test_audio.shape}")
+        print(f"  test_files: {test_files.shape if test_files is not None else 'None'}")
+    else:
+        print("ERROR: No clips loaded! Check filenames / directory.")
+        test_X = np.empty((0, 64, 56), dtype=np.float32)
+        test_Y = test_X.copy()
+        test_audio = test_X.copy()
+        test_files = None
+
+    print(f"Prepared {test_X.shape[0]} clips for inference")
+
+    # CRITICAL: Set batch_size to process ALL clips in one go
+    config['batch_size'] = max(1, test_X.shape[0])   # avoids leftover clips
+    print(f"Using batch_size = {config['batch_size']} (all clips at once)")
     ## run model and save/eval
     unstd_pred, probs, unstd_ub = run_model(args, config, l_vq_model, generator,
                                             test_X, test_Y, test_audio, seq_len,
